@@ -90,9 +90,12 @@ app.get("/api/me", (req, res) => {
 
 // تسجيل الخروج
 app.post("/api/logout", (req, res) => {
-  res.clearCookie("token");
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none"
+  });
   res.json({ message: "✅ تم تسجيل الخروج" });
 });
-
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 الخادم يعمل على المنفذ ${PORT}`));
