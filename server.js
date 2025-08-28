@@ -9,11 +9,14 @@ require("dotenv").config();
 const app = express();
 app.use(express.json());
 app.use(cookieParser());
+
+// ✅ CORS يسمح بأي Origin
 app.use(cors({
-  origin: "http://localhost:3000",
-  credentials: true
+  origin: true,       // يسمح بأي دومين
+  credentials: true   // يسمح بإرسال الكوكيز
 }));
 
+// الاتصال بقاعدة البيانات
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
