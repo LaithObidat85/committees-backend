@@ -1,2 +1,2 @@
-# committees-dashboard
+# committees-backend
 نظام إدارة وتقييم اللجان
