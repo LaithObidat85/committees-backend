@@ -11,23 +11,27 @@ app.use(express.json());
 app.use(cookieParser());
 
 // ✅ CORS يسمح بأي Origin
-app.use(cors({
-  origin: true,       // يسمح بأي دومين
-  credentials: true   // يسمح بإرسال الكوكيز
-}));
+app.use(
+  cors({
+    origin: true, // يسمح بأي دومين
+    credentials: true, // يسمح بإرسال الكوكيز
+  })
+);
 
 // الاتصال بقاعدة البيانات
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-}).then(() => console.log("✅ تم الاتصال بقاعدة البيانات"))
-  .catch(err => console.error("❌ خطأ في الاتصال بقاعدة البيانات:", err));
+mongoose
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("✅ تم الاتصال بقاعدة البيانات"))
+  .catch((err) => console.error("❌ خطأ في الاتصال بقاعدة البيانات:", err));
 
 // نموذج المستخدم
 const UserSchema = new mongoose.Schema({
   name: { type: String }, // اسم المستخدم (اختياري)
   email: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
+  password: { type: String, required: true },
 });
 const User = mongoose.model("User", UserSchema);
 
@@ -54,7 +58,9 @@ app.post("/api/users", async (req, res) => {
     res.status(201).json({ message: "✅ تم إضافة المستخدم بنجاح" });
   } catch (err) {
     console.error(err);
-    res.status(400).json({ error: "❌ فشل إضافة المستخدم (ربما البريد الإلكتروني مستخدم)" });
+    res
+      .status(400)
+      .json({ error: "❌ فشل إضافة المستخدم (ربما البريد الإلكتروني مستخدم)" });
   }
 });
 
@@ -65,14 +71,17 @@ app.post("/api/login", async (req, res) => {
   if (!user) return res.status(400).json({ error: "❌ المستخدم غير موجود" });
 
   const valid = await bcrypt.compare(password, user.password);
-  if (!valid) return res.status(400).json({ error: "❌ بيانات الدخول غير صحيحة" });
+  if (!valid)
+    return res.status(400).json({ error: "❌ بيانات الدخول غير صحيحة" });
 
-  const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
+  const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+    expiresIn: "1h",
+  });
   res.cookie("token", token, {
     httpOnly: true,
     secure: true,
     sameSite: "none",
-    maxAge: 60 * 60 * 1000
+    maxAge: 60 * 60 * 1000,
   });
   res.json({ message: "✅ تم تسجيل الدخول بنجاح" });
 });
@@ -93,7 +102,7 @@ app.post("/api/logout", (req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
     secure: true,
-    sameSite: "none"
+    sameSite: "none",
   });
   res.json({ message: "✅ تم تسجيل الخروج" });
 });
