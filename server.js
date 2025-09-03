@@ -9,6 +9,7 @@ const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const helmet = require("helmet"); // ✅ مكتبة لزيادة الأمان
 const rateLimit = require("express-rate-limit"); // ✅ مكتبة لتحديد عدد الطلبات
+const { body, validationResult } = require("express-validator"); // ✅ مكتبة للتحقق من المدخلات
 require("dotenv").config();
 
 // ==========================
@@ -59,6 +60,7 @@ const UserSchema = new mongoose.Schema({
   name: { type: String }, // اسم المستخدم (اختياري)
   email: { type: String, required: true, unique: true }, // البريد الإلكتروني
   password: { type: String, required: true }, // كلمة المرور (مشفرة)
+  approved: { type: Boolean, default: false }, // ✅ حالة الموافقة
 });
 const User = mongoose.model("User", UserSchema);
 
@@ -66,42 +68,85 @@ const User = mongoose.model("User", UserSchema);
 // 📌 6. المسارات (Routes)
 // ==========================
 
-// (1) تسجيل مستخدم جديد (تسجيل ذاتي)
-app.post("/api/register", async (req, res) => {
-  try {
-    const { email, password, name } = req.body;
-    const hashed = await bcrypt.hash(password, 10); // تشفير كلمة المرور
-    const newUser = new User({ email, password: hashed, name });
-    await newUser.save();
-    res.json({ message: "✅ تم تسجيل المستخدم بنجاح" });
-  } catch (err) {
-    res.status(400).json({ error: "❌ البريد الإلكتروني مستخدم بالفعل" });
-  }
-});
+// (1) تسجيل مستخدم جديد (تسجيل ذاتي + Pending Approval)
+app.post(
+  "/api/register",
+  [
+    body("email").isEmail().withMessage("❌ بريد إلكتروني غير صالح"),
+    body("password")
+      .isLength({ min: 6 })
+      .withMessage("❌ كلمة المرور يجب أن تكون 6 أحرف على الأقل"),
+    body("name").notEmpty().withMessage("❌ الاسم مطلوب"),
+  ],
+  async (req, res) => {
+    // التحقق من الأخطاء
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
 
-// (2) إضافة مستخدم جديد (لوحة الإدارة)
-app.post("/api/users", async (req, res) => {
-  try {
-    const { email, password, name } = req.body;
-    const hashed = await bcrypt.hash(password, 10);
-    const user = new User({ email, password: hashed, name });
-    await user.save();
-    res.status(201).json({ message: "✅ تم إضافة المستخدم بنجاح" });
-  } catch (err) {
-    console.error(err);
-    res
-      .status(400)
-      .json({ error: "❌ فشل إضافة المستخدم (ربما البريد الإلكتروني مستخدم)" });
+    try {
+      const { email, password, name } = req.body;
+      const hashed = await bcrypt.hash(password, 10); // تشفير كلمة المرور
+      const newUser = new User({
+        email,
+        password: hashed,
+        name,
+        approved: false,
+      });
+      await newUser.save();
+      res.json({ message: "✅ تم تسجيل المستخدم بنجاح، بانتظار الموافقة" });
+    } catch (err) {
+      res.status(400).json({ error: "❌ البريد الإلكتروني مستخدم بالفعل" });
+    }
   }
-});
+);
 
-// (3) تسجيل الدخول
+// (2) إضافة مستخدم جديد (لوحة الإدارة - يضاف موافق تلقائيًا)
+app.post(
+  "/api/users",
+  [
+    body("email").isEmail().withMessage("❌ بريد إلكتروني غير صالح"),
+    body("password")
+      .isLength({ min: 6 })
+      .withMessage("❌ كلمة المرور يجب أن تكون 6 أحرف على الأقل"),
+    body("name").notEmpty().withMessage("❌ الاسم مطلوب"),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const { email, password, name } = req.body;
+      const hashed = await bcrypt.hash(password, 10);
+      const user = new User({ email, password: hashed, name, approved: true }); // ✅ يضاف موافق
+      await user.save();
+      res.status(201).json({ message: "✅ تم إضافة المستخدم بنجاح" });
+    } catch (err) {
+      console.error(err);
+      res.status(400).json({
+        error: "❌ فشل إضافة المستخدم (ربما البريد الإلكتروني مستخدم)",
+      });
+    }
+  }
+);
+
+// (3) تسجيل الدخول (لا يسمح إلا للمستخدم الموافق عليه)
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
 
   // البحث عن المستخدم
   const user = await User.findOne({ email });
   if (!user) return res.status(400).json({ error: "❌ المستخدم غير موجود" });
+
+  // التحقق من الموافقة
+  if (!user.approved) {
+    return res
+      .status(403)
+      .json({ error: "❌ حسابك بانتظار الموافقة من الإدارة" });
+  }
 
   // التحقق من كلمة المرور
   const valid = await bcrypt.compare(password, user.password);
@@ -115,10 +160,10 @@ app.post("/api/login", async (req, res) => {
 
   // إرسال التوكن كـ Cookie آمن
   res.cookie("token", token, {
-    httpOnly: true, // لا يمكن الوصول له من JavaScript
-    secure: true, // يُرسل فقط عبر HTTPS
-    sameSite: "none", // يعمل عبر دومينات مختلفة
-    maxAge: 60 * 60 * 1000, // ساعة واحدة
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    maxAge: 60 * 60 * 1000,
   });
 
   res.json({ message: "✅ تم تسجيل الدخول بنجاح" });
@@ -143,6 +188,22 @@ app.post("/api/logout", (req, res) => {
     sameSite: "none",
   });
   res.json({ message: "✅ تم تسجيل الخروج" });
+});
+
+// (6) الموافقة على مستخدم (لوحة الإدارة)
+app.patch("/api/users/:id/approve", async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { approved: true },
+      { new: true }
+    );
+    if (!user) return res.status(404).json({ error: "❌ المستخدم غير موجود" });
+
+    res.json({ message: "✅ تم الموافقة على المستخدم", user });
+  } catch (err) {
+    res.status(400).json({ error: "❌ خطأ أثناء الموافقة على المستخدم" });
+  }
 });
 
 // ==========================
