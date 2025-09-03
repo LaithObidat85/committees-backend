@@ -23,10 +23,13 @@ const app = express();
 app.use(express.json()); // تحويل الطلبات القادمة إلى JSON
 app.use(cookieParser()); // قراءة الكوكيز
 
-// ✅ CORS يسمح بالوصول من أي دومين مع إرسال الكوكيز
+// ✅ CORS مضبوط: يسمح من localhost أثناء التطوير و Vercel عند النشر
 app.use(
   cors({
-    origin: true,
+    origin:
+      process.env.NODE_ENV === "production"
+        ? "https://committees-iu.vercel.app" // 🔗 ضع رابط Vercel الصحيح هنا
+        : "http://localhost:3000", // محلي
     credentials: true,
   })
 );
@@ -57,10 +60,11 @@ mongoose
 // 📌 5. تعريف نموذج المستخدم (Schema + Model)
 // ==========================
 const UserSchema = new mongoose.Schema({
-  name: { type: String }, // اسم المستخدم (اختياري)
+  name: { type: String }, // اسم المستخدم
   email: { type: String, required: true, unique: true }, // البريد الإلكتروني
   password: { type: String, required: true }, // كلمة المرور (مشفرة)
   approved: { type: Boolean, default: false }, // ✅ حالة الموافقة
+  role: { type: String, default: "user" }, // 🆕 لدعم الصلاحيات (user/admin)
 });
 const User = mongoose.model("User", UserSchema);
 
@@ -121,7 +125,13 @@ app.post(
     try {
       const { email, password, name } = req.body;
       const hashed = await bcrypt.hash(password, 10);
-      const user = new User({ email, password: hashed, name, approved: true }); // ✅ يضاف موافق
+      const user = new User({
+        email,
+        password: hashed,
+        name,
+        approved: true, // ✅ يضاف موافق
+        role: "user",
+      });
       await user.save();
       res.status(201).json({ message: "✅ تم إضافة المستخدم بنجاح" });
     } catch (err) {
@@ -154,15 +164,19 @@ app.post("/api/login", async (req, res) => {
     return res.status(400).json({ error: "❌ بيانات الدخول غير صحيحة" });
 
   // إنشاء JWT Token
-  const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-    expiresIn: "1h",
-  });
+  const token = jwt.sign(
+    { id: user._id, role: user.role },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: "1h",
+    }
+  );
 
   // إرسال التوكن كـ Cookie آمن
   res.cookie("token", token, {
     httpOnly: true,
-    secure: true,
-    sameSite: "none",
+    secure: process.env.NODE_ENV === "production", // ✅ محلي/إنترنت
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     maxAge: 60 * 60 * 1000,
   });
 
@@ -176,7 +190,11 @@ app.get("/api/me", (req, res) => {
 
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) return res.status(401).json({ error: "❌ رمز التحقق غير صالح" });
-    res.json({ message: "✅ تم التحقق من الجلسة", userId: decoded.id });
+    res.json({
+      message: "✅ تم التحقق من الجلسة",
+      userId: decoded.id,
+      role: decoded.role,
+    });
   });
 });
 
@@ -184,8 +202,8 @@ app.get("/api/me", (req, res) => {
 app.post("/api/logout", (req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
-    secure: true,
-    sameSite: "none",
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
   });
   res.json({ message: "✅ تم تسجيل الخروج" });
 });
